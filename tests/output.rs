@@ -19,7 +19,7 @@ fn the_gif_rebuilds_every_frame_exactly_at_twice_the_size() {
             u32::from(gif_decoder.width()),
             u32::from(gif_decoder.height())
         ),
-        (STATIC_WIDTH_PIXELS, STATIC_HEIGHT_PIXELS)
+        (512, 512)
     );
     // Composite the way a browser does: draw each frame's box over the canvas, show
     // the result, then apply the frame's disposal before the next one.

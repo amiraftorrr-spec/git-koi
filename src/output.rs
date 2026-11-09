@@ -81,7 +81,7 @@ const PREVIEW_HEAD: &str = r#"<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>git-koi preview</title>
+<title>Amir's Living Koi preview</title>
 <style>
   body { margin: 0; font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; }
   h1, h2 { margin: 0; font-size: 14px; font-weight: 600; }

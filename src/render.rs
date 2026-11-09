@@ -19,12 +19,17 @@
 
 use std::f64::consts::{PI, TAU};
 
+use chrono::Datelike;
+
 use crate::behavior::Behavior;
 use crate::coat::{KoiBody, KoiCoat, WHITE_RAMP};
 use crate::koi::{
     ADULT_CONTRIBUTIONS, KoiDevelopment, YOUNG_SHAPE_CONTRIBUTIONS, calculate_growth_fraction,
 };
-use crate::motion::{Course, STILL_POSE, SwimPose, calculate_swim_pose, frame_count};
+use crate::motion::{
+    Course, LivingSwimPose, STILL_POSE, SwimPose, calculate_living_swim_pose, calculate_swim_pose,
+    frame_count,
+};
 
 /// Width of the native canvas every koi is drawn on, at every growth level.
 pub const FRAME_WIDTH_PIXELS: u32 = 256;
@@ -64,6 +69,7 @@ pub fn render_koi(koi_development: &KoiDevelopment, koi_body: KoiBody) -> KoiFra
         koi_body,
         &koi_anatomy,
         &STILL_POSE,
+        WaterEffects::default(),
         Framing::CenterOnKoi,
     )
 }
@@ -99,8 +105,85 @@ pub fn render_swim_frame(
         koi_body,
         &koi_anatomy,
         &swim_pose,
+        WaterEffects::from_legacy_pose(&swim_pose),
         Framing::At(pose_center),
     )
+}
+
+/// Render one frame of Amir's account-seeded, varied animation. This keeps the same
+/// native canvas and frame loop as [`render_swim_frame`], but smoothly blends a
+/// deterministic sequence of playful events into the contribution-selected behavior.
+pub fn render_living_swim_frame(
+    koi_development: &KoiDevelopment,
+    koi_body: KoiBody,
+    behavior: Behavior,
+    frame_index: u32,
+) -> KoiFrame {
+    let koi_anatomy = calculate_anatomy(koi_development.total_contributions);
+    let animation_seed = living_animation_seed(koi_development);
+    let living_pose = calculate_living_swim_pose(behavior, animation_seed, frame_index);
+    let swim_pose = &living_pose.pose;
+    let pose_center = match swim_pose.course {
+        Course::Lap { .. } => [0.0, 0.0],
+        Course::Hover { drift_pixels, .. } => {
+            let hover_fit = fit_living_hover_loop(behavior, animation_seed, &koi_anatomy);
+            [0, 1].map(|axis_index| {
+                hover_fit.sweep_center[axis_index]
+                    - hover_fit.drift_scales[axis_index] * drift_pixels[axis_index]
+            })
+        }
+    };
+    render_pose(
+        koi_development,
+        koi_body,
+        &koi_anatomy,
+        swim_pose,
+        WaterEffects::from_living_pose(&living_pose),
+        Framing::At(pose_center),
+    )
+}
+
+/// Render the whole living animation, fitting a hovering loop once so repeated frame
+/// generation stays inexpensive and the koi remains inside the canvas.
+pub fn render_living_swim_frames(
+    koi_development: &KoiDevelopment,
+    koi_body: KoiBody,
+    behavior: Behavior,
+) -> Vec<KoiFrame> {
+    let koi_anatomy = calculate_anatomy(koi_development.total_contributions);
+    let animation_seed = living_animation_seed(koi_development);
+    let hover_fit = (!matches!(
+        calculate_living_swim_pose(behavior, animation_seed, 0).course,
+        Course::Lap { .. }
+    ))
+    .then(|| fit_living_hover_loop(behavior, animation_seed, &koi_anatomy));
+    (0..frame_count(behavior))
+        .map(|frame_index| {
+            let living_pose = calculate_living_swim_pose(behavior, animation_seed, frame_index);
+            let swim_pose = &living_pose.pose;
+            let pose_center = match (swim_pose.course, &hover_fit) {
+                (Course::Lap { .. }, _) => [0.0, 0.0],
+                (Course::Hover { drift_pixels, .. }, Some(hover_fit)) => [0, 1].map(|axis_index| {
+                    hover_fit.sweep_center[axis_index]
+                        - hover_fit.drift_scales[axis_index] * drift_pixels[axis_index]
+                }),
+                (Course::Hover { .. }, None) => unreachable!("hover loops have a fitted frame"),
+            };
+            render_pose(
+                koi_development,
+                koi_body,
+                &koi_anatomy,
+                swim_pose,
+                WaterEffects::from_living_pose(&living_pose),
+                Framing::At(pose_center),
+            )
+        })
+        .collect()
+}
+
+fn living_animation_seed(koi_development: &KoiDevelopment) -> u64 {
+    koi_development.identity_seed
+        ^ (koi_development.observed_on.num_days_from_ce() as u64).rotate_left(23)
 }
 
 /// Where the view is centered: on the koi itself for the still image, or at a point
@@ -108,6 +191,36 @@ pub fn render_swim_frame(
 enum Framing {
     CenterOnKoi,
     At([f64; 2]),
+}
+
+#[derive(Clone, Copy, Default)]
+struct WaterEffects {
+    feeding_strength: f64,
+    bubble_strength: f64,
+    splash_strength: f64,
+    phase: f64,
+}
+
+impl WaterEffects {
+    fn from_legacy_pose(swim_pose: &SwimPose) -> Self {
+        Self {
+            feeding_strength: if swim_pose.feeding_phase.is_some() {
+                1.0
+            } else {
+                0.0
+            },
+            ..Self::default()
+        }
+    }
+
+    fn from_living_pose(living_pose: &LivingSwimPose) -> Self {
+        Self {
+            feeding_strength: living_pose.feeding_strength,
+            bubble_strength: living_pose.bubble_strength,
+            splash_strength: living_pose.splash_strength,
+            phase: living_pose.effect_phase,
+        }
+    }
 }
 
 /// One framing for a whole hovering loop.
@@ -120,11 +233,31 @@ struct HoverFit {
 /// Center a hovering loop on everything the koi covers across its frames, then shrink
 /// the drift on each axis only as far as needed to keep every frame inside the frame.
 fn fit_hover_loop(behavior: Behavior, koi_anatomy: &KoiAnatomy) -> HoverFit {
+    fit_hover_loop_with(behavior, koi_anatomy, |frame_index| {
+        calculate_swim_pose(behavior, frame_index)
+    })
+}
+
+fn fit_living_hover_loop(
+    behavior: Behavior,
+    identity_seed: u64,
+    koi_anatomy: &KoiAnatomy,
+) -> HoverFit {
+    fit_hover_loop_with(behavior, koi_anatomy, |frame_index| {
+        calculate_living_swim_pose(behavior, identity_seed, frame_index).pose
+    })
+}
+
+fn fit_hover_loop_with(
+    behavior: Behavior,
+    koi_anatomy: &KoiAnatomy,
+    pose_for_frame: impl Fn(u32) -> SwimPose,
+) -> HoverFit {
     // Room for the outline, a clear pixel at the frame edge, and rounding.
     const FIT_MARGIN_PIXELS: f64 = 2.5;
     let frame_bounds: Vec<([[f64; 2]; 2], [f64; 2])> = (0..frame_count(behavior))
         .map(|frame_index| {
-            let swim_pose = calculate_swim_pose(behavior, frame_index);
+            let swim_pose = pose_for_frame(frame_index);
             let body_spine = build_spine(koi_anatomy, &swim_pose);
             let fin_curves = build_fins(&body_spine, koi_anatomy, &swim_pose);
             let [mut min_corner, mut max_corner] = measure_curve_bounds(&body_spine, &fin_curves);
@@ -187,6 +320,7 @@ fn render_pose(
     koi_body: KoiBody,
     koi_anatomy: &KoiAnatomy,
     swim_pose: &SwimPose,
+    water_effects: WaterEffects,
     framing: Framing,
 ) -> KoiFrame {
     let koi_coat = KoiCoat::new(koi_development, koi_body, |along_fraction| {
@@ -253,10 +387,29 @@ fn render_pose(
             koi_anatomy,
             pose_center,
             feeding_phase,
+            water_effects.feeding_strength,
         );
     }
     if swim_pose.depth > 0.0 {
         paint_depth(&mut rgba_pixels, &fish_pixel_mask, swim_pose.depth);
+    }
+    if water_effects.bubble_strength > 0.0 {
+        paint_bubbles(
+            &mut rgba_pixels,
+            &body_spine,
+            pose_center,
+            water_effects.phase,
+            water_effects.bubble_strength,
+        );
+    }
+    if water_effects.splash_strength > 0.0 {
+        paint_splash(
+            &mut rgba_pixels,
+            &body_spine,
+            pose_center,
+            water_effects.phase,
+            water_effects.splash_strength,
+        );
     }
     KoiFrame { rgba_pixels }
 }
@@ -337,6 +490,7 @@ fn paint_feeding(
     koi_anatomy: &KoiAnatomy,
     pose_center: [f64; 2],
     feeding_phase: f64,
+    feeding_strength: f64,
 ) {
     const RING_COUNT: usize = 3;
     const RING_WIDTH_PER_BODY_LENGTH: f64 = 0.3;
@@ -397,7 +551,7 @@ fn paint_feeding(
                     mouth[1] + ring_angle.sin() * ring_width * RING_HEIGHT_PER_WIDTH,
                 ],
                 ring_color,
-                (1.0 - ring_phase) * 0.75,
+                (1.0 - ring_phase) * 0.75 * feeding_strength,
             );
             ring_angle += RING_ANGLE_STEP_RADIANS;
         }
@@ -420,12 +574,89 @@ fn paint_feeding(
                 + pellet_scale
                     * (forward_direction[1] * reach + (pellet_index as f64 * 1.7).cos() * wander),
         ];
-        paint_water(pellet_point, PELLET_COLORS[0], 1.0);
+        paint_water(pellet_point, PELLET_COLORS[0], feeding_strength);
         paint_water(
             [pellet_point[0] + 1.0, pellet_point[1]],
             PELLET_COLORS[1],
-            1.0,
+            feeding_strength,
         );
+    }
+}
+
+fn paint_bubbles(
+    rgba_pixels: &mut [[u8; 4]],
+    body_spine: &[CurvePoint],
+    pose_center: [f64; 2],
+    effect_phase: f64,
+    strength: f64,
+) {
+    const BUBBLE_COUNT: usize = 3;
+    const BUBBLE_COLOR: [u8; 4] = [192, 203, 220, 255];
+    let frame_width = FRAME_WIDTH_PIXELS as usize;
+    let frame_height = FRAME_HEIGHT_PIXELS as usize;
+    let anchor = body_spine[body_spine.len() / 4].position;
+    let phase = effect_phase.clamp(0.0, 1.0);
+    for bubble_index in 0..BUBBLE_COUNT {
+        let life = (phase + bubble_index as f64 / BUBBLE_COUNT as f64).fract();
+        let travel = (1.0 - (TAU * life).cos()) * 4.0;
+        let center = [
+            anchor[0] - pose_center[0]
+                + f64::from(FRAME_WIDTH_PIXELS) / 2.0
+                + (TAU * life + bubble_index as f64).sin() * 2.0,
+            anchor[1] - pose_center[1] + f64::from(FRAME_HEIGHT_PIXELS) / 2.0 - 7.0 - travel,
+        ];
+        let radius = 1.1 + (bubble_index % 2) as f64 * 0.4;
+        let first_x = (center[0] - radius).floor().max(0.0) as usize;
+        let last_x = (center[0] + radius).ceil().min((frame_width - 1) as f64) as usize;
+        let first_y = (center[1] - radius).floor().max(0.0) as usize;
+        let last_y = (center[1] + radius).ceil().min((frame_height - 1) as f64) as usize;
+        for pixel_y in first_y..=last_y {
+            for pixel_x in first_x..=last_x {
+                let distance =
+                    (pixel_x as f64 + 0.5 - center[0]).hypot(pixel_y as f64 + 0.5 - center[1]);
+                let pixel_index = pixel_y * frame_width + pixel_x;
+                if (radius - 0.65..=radius + 0.35).contains(&distance)
+                    && rgba_pixels[pixel_index][3] == 0
+                    && calculate_dither_threshold([pixel_x as u32, pixel_y as u32]) < strength
+                {
+                    rgba_pixels[pixel_index] = BUBBLE_COLOR;
+                }
+            }
+        }
+    }
+}
+
+fn paint_splash(
+    rgba_pixels: &mut [[u8; 4]],
+    body_spine: &[CurvePoint],
+    pose_center: [f64; 2],
+    effect_phase: f64,
+    strength: f64,
+) {
+    const DROPLET_COLOR: [u8; 4] = [192, 203, 220, 255];
+    let tail = body_spine[body_spine.len() - 1].position;
+    let center = [
+        tail[0] - pose_center[0] + f64::from(FRAME_WIDTH_PIXELS) / 2.0,
+        tail[1] - pose_center[1] + f64::from(FRAME_HEIGHT_PIXELS) / 2.0,
+    ];
+    let rise = (1.0 - (TAU * effect_phase).cos()) * 0.5;
+    for droplet_index in 0..3 {
+        let angle = -PI / 2.0 + (droplet_index as f64 - 1.0) * 0.7;
+        let distance = 4.0 + rise * 5.0;
+        let pixel_x = (center[0] + angle.cos() * distance).floor();
+        let pixel_y = (center[1] + angle.sin() * distance).floor();
+        if !(0.0..f64::from(FRAME_WIDTH_PIXELS)).contains(&pixel_x)
+            || !(0.0..f64::from(FRAME_HEIGHT_PIXELS)).contains(&pixel_y)
+        {
+            continue;
+        }
+        let pixel_position = [pixel_x as u32, pixel_y as u32];
+        let pixel_index =
+            pixel_position[1] as usize * FRAME_WIDTH_PIXELS as usize + pixel_position[0] as usize;
+        if rgba_pixels[pixel_index][3] == 0 && calculate_dither_threshold(pixel_position) < strength
+        {
+            rgba_pixels[pixel_index] = DROPLET_COLOR;
+        }
     }
 }
 

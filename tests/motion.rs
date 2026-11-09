@@ -1,7 +1,10 @@
-use std::f64::consts::TAU;
+use std::f64::consts::{PI, TAU};
 
 use git_koi::behavior::Behavior;
-use git_koi::motion::{Course, SwimPose, calculate_swim_pose, frame_count};
+use git_koi::motion::{
+    Course, SwimEvent, SwimPose, animation_sequence, calculate_living_swim_pose,
+    calculate_swim_pose, frame_count,
+};
 
 /// A pose value's name, how to read it, and whether it wraps around a full turn and
 /// so is compared around the circle.
@@ -307,6 +310,107 @@ fn deep_rest_flicks_one_fin_once_per_loop() {
             .windows(2)
             .all(|frame_pair| frame_pair[1] == frame_pair[0] + 1)
     );
+}
+
+#[test]
+fn animation_sequences_are_seeded_varied_and_return_to_their_starting_mood() {
+    let sequence = animation_sequence(Behavior::Cruise, 42);
+    assert_eq!(sequence[0], SwimEvent::Cruise);
+    assert_eq!(sequence[4], sequence[0]);
+    assert!(sequence.windows(2).all(|pair| pair[0] != pair[1]));
+    assert_eq!(sequence, animation_sequence(Behavior::Cruise, 42));
+    assert!(
+        (0..100).any(|identity_seed| {
+            animation_sequence(Behavior::Cruise, identity_seed) != sequence
+        })
+    );
+    assert_eq!(
+        animation_sequence(Behavior::SurfaceFeeding, 42)[0],
+        SwimEvent::Feeding
+    );
+    assert_eq!(
+        animation_sequence(Behavior::Dart, 42)[0],
+        SwimEvent::FastSwim
+    );
+}
+
+#[test]
+fn living_motion_is_reproducible_and_closes_its_loop() {
+    for behavior in [
+        Behavior::Cruise,
+        Behavior::Dart,
+        Behavior::Rest,
+        Behavior::SurfaceFeeding,
+        Behavior::DeepRest,
+    ] {
+        let frame_count = frame_count(behavior);
+        for frame_index in 0..frame_count {
+            let pose = calculate_living_swim_pose(behavior, 123_456, frame_index);
+            assert_eq!(
+                pose,
+                calculate_living_swim_pose(behavior, 123_456, frame_index)
+            );
+            assert!(pose.wave_strength.is_finite());
+            assert!((0.0..=1.0).contains(&pose.feeding_strength));
+            assert!((0.0..=1.0).contains(&pose.bubble_strength));
+            assert!((0.0..=1.0).contains(&pose.splash_strength));
+        }
+        assert_eq!(
+            calculate_living_swim_pose(behavior, 123_456, frame_count),
+            calculate_living_swim_pose(behavior, 123_456, 0)
+        );
+    }
+}
+
+#[test]
+fn living_motion_transitions_without_large_frame_to_frame_jumps() {
+    for behavior in [
+        Behavior::Cruise,
+        Behavior::Dart,
+        Behavior::Rest,
+        Behavior::SurfaceFeeding,
+        Behavior::DeepRest,
+    ] {
+        let poses: Vec<_> = (0..=frame_count(behavior))
+            .map(|frame_index| calculate_living_swim_pose(behavior, 987, frame_index))
+            .collect();
+        for pose_pair in poses.windows(2) {
+            let course_step = match (pose_pair[0].course, pose_pair[1].course) {
+                (
+                    Course::Lap {
+                        angle_radians: before,
+                    },
+                    Course::Lap {
+                        angle_radians: after,
+                    },
+                ) => (after - before + PI).rem_euclid(TAU) - PI,
+                (
+                    Course::Hover {
+                        heading_offset_radians: before_heading,
+                        drift_pixels: before_drift,
+                    },
+                    Course::Hover {
+                        heading_offset_radians: after_heading,
+                        drift_pixels: after_drift,
+                    },
+                ) => {
+                    assert!((after_drift[0] - before_drift[0]).abs() < 3.0);
+                    assert!((after_drift[1] - before_drift[1]).abs() < 3.0);
+                    after_heading - before_heading
+                }
+                _ => panic!("a behavior changed course type mid-loop"),
+            };
+            assert!(course_step.abs() < 0.5, "{behavior:?}: {course_step}");
+            assert!(
+                (pose_pair[1].wave_strength - pose_pair[0].wave_strength).abs() < 0.5,
+                "{behavior:?}: wave strength {} -> {}",
+                pose_pair[0].wave_strength,
+                pose_pair[1].wave_strength
+            );
+            assert!((pose_pair[1].feeding_strength - pose_pair[0].feeding_strength).abs() < 0.2);
+            assert!((pose_pair[1].bubble_strength - pose_pair[0].bubble_strength).abs() < 0.2);
+        }
+    }
 }
 
 #[test]

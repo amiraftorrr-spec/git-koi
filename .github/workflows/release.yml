@@ -2,9 +2,9 @@ name: Release
 
 # A version tag builds the binaries, publishes the GitHub Release, proves the
 # Action downloads what was just released, and only then moves the major tag the
-# Action is referenced by and publishes the crate, since those two cannot be
-# undone. Every step that creates something skips it when it already exists, so
-# a rerun is safe.
+# Action is referenced by. The upstream repository publishes the crate only
+# after the smoke test; forks do not own the upstream crates.io package. Every
+# step that creates something skips it when it already exists, so a rerun is safe.
 on:
   push:
     tags: ["v[0-9]+.[0-9]+.[0-9]+"]
@@ -159,6 +159,7 @@ jobs:
               -f ref="refs/tags/$major_tag" -f sha="$GITHUB_SHA" > /dev/null
           fi
       - name: Check whether crates.io already has this version
+        if: github.repository == 'yalongwastaken/git-koi'
         id: crates_io
         run: |
           crate_url="https://crates.io/api/v1/crates/git-koi/$VERSION"

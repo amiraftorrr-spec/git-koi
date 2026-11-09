@@ -6,6 +6,14 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.0.3] - 2026-11-10
+
+### Added
+
+- Amir's Living Koi, with a reproducible sequence of smoothly blended swimming
+  events, bubbles, and small splashes; the existing contribution-driven behavior,
+  colors, and output files remain available.
+
 ## [1.0.2] - 2026-10-31
 
 ### Fixed
@@ -34,7 +42,8 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The `git-koi` library: account history, koi development, behavior, motion,
   markings, rendering, and encoding.
 
-[Unreleased]: https://github.com/yalongwastaken/git-koi/compare/v1.0.2...HEAD
-[1.0.2]: https://github.com/yalongwastaken/git-koi/compare/v1.0.1...v1.0.2
-[1.0.1]: https://github.com/yalongwastaken/git-koi/compare/v1.0.0...v1.0.1
-[1.0.0]: https://github.com/yalongwastaken/git-koi/releases/tag/v1.0.0
+[Unreleased]: https://github.com/amiraftorrr-spec/git-koi/compare/v1.0.3...HEAD
+[1.0.3]: https://github.com/amiraftorrr-spec/git-koi/compare/v1.0.2...v1.0.3
+[1.0.2]: https://github.com/amiraftorrr-spec/git-koi/compare/v1.0.1...v1.0.2
+[1.0.1]: https://github.com/amiraftorrr-spec/git-koi/compare/v1.0.0...v1.0.1
+[1.0.0]: https://github.com/amiraftorrr-spec/git-koi/releases/tag/v1.0.0

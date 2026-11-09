@@ -8,7 +8,7 @@ The latest release receives security fixes. Older releases do not.
 
 Report a vulnerability privately through GitHub: open the repository's Security
 tab and choose "Report a vulnerability", or go straight to
-<https://github.com/yalongwastaken/git-koi/security/advisories/new>. Do not open
+<https://github.com/amiraftorrr-spec/git-koi/security/advisories/new>. Do not open
 a public issue for a vulnerability.
 
 Include the command or workflow that triggers the problem and what an attacker

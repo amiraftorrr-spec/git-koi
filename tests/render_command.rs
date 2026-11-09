@@ -8,8 +8,8 @@ use git_koi::coat::KoiBody;
 use git_koi::history::{AccountSnapshot, ContributionDay};
 use git_koi::koi::{KoiDevelopment, derive_koi_development};
 use git_koi::motion::frame_count;
-use git_koi::output::{encode_gif, encode_png};
-use git_koi::render::{KoiFrame, render_koi, render_swim_frame};
+use git_koi::output::{STATIC_HEIGHT_PIXELS, STATIC_WIDTH_PIXELS, encode_gif, encode_png};
+use git_koi::render::{KoiFrame, render_koi, render_living_swim_frames};
 
 const HISTORY_FIXTURE: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -52,15 +52,28 @@ fn render_writes_the_days_loop_still_and_preview_as_the_renderer_draws_them() {
     let koi_development = derive_koi_development(&account_snapshot).unwrap();
     let behavior = select_behavior(&koi_development);
     assert_eq!(behavior, Behavior::Rest);
-    let swim_frames: Vec<KoiFrame> = (0..frame_count(behavior))
-        .map(|frame_index| {
-            render_swim_frame(&koi_development, KoiBody::White, behavior, frame_index)
-        })
-        .collect();
+    let swim_frames: Vec<KoiFrame> =
+        render_living_swim_frames(&koi_development, KoiBody::White, behavior);
+    let generated_gif = fs::read(output_directory.join("koi.gif")).unwrap();
+    assert_eq!(generated_gif, encode_gif(&swim_frames).unwrap());
+    let mut gif_decoder = gif::DecodeOptions::new()
+        .read_info(generated_gif.as_slice())
+        .unwrap();
     assert_eq!(
-        fs::read(output_directory.join("koi.gif")).unwrap(),
-        encode_gif(&swim_frames).unwrap()
+        (
+            u32::from(gif_decoder.width()),
+            u32::from(gif_decoder.height())
+        ),
+        (STATIC_WIDTH_PIXELS, STATIC_HEIGHT_PIXELS)
     );
+    assert_eq!(gif_decoder.repeat(), gif::Repeat::Infinite);
+    let mut decoded_frame_count = 0;
+    while let Some(frame) = gif_decoder.read_next_frame().unwrap() {
+        assert!(u32::from(frame.left) + u32::from(frame.width) <= STATIC_WIDTH_PIXELS);
+        assert!(u32::from(frame.top) + u32::from(frame.height) <= STATIC_HEIGHT_PIXELS);
+        decoded_frame_count += 1;
+    }
+    assert_eq!(decoded_frame_count, frame_count(behavior) as usize);
     assert_eq!(
         fs::read(output_directory.join("koi.png")).unwrap(),
         encode_png(&render_koi(&koi_development, KoiBody::White)).unwrap()

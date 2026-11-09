@@ -12,7 +12,8 @@ use git_koi::koi::{
 use git_koi::motion::frame_count;
 use git_koi::output::encode_png;
 use git_koi::render::{
-    FRAME_HEIGHT_PIXELS, FRAME_WIDTH_PIXELS, KoiFrame, render_koi, render_swim_frame,
+    FRAME_HEIGHT_PIXELS, FRAME_WIDTH_PIXELS, KoiFrame, render_koi, render_living_swim_frame,
+    render_swim_frame,
 };
 
 type LanguageMix<'a> = &'a [(&'a str, Option<&'a str>, f64)];
@@ -547,6 +548,29 @@ fn quiet_days_change_streak_state_without_changing_the_anatomy() {
     {
         assert_eq!(active_pixel[3], quiet_pixel[3]);
     }
+}
+
+#[test]
+fn the_living_renderer_keeps_the_existing_canvas_and_varies_its_frames() {
+    let koi_development = read_fixture_development();
+    let behavior = Behavior::SurfaceFeeding;
+    let first_frame = render_living_swim_frame(&koi_development, KoiBody::default(), behavior, 0);
+    let lively_frame = render_living_swim_frame(&koi_development, KoiBody::default(), behavior, 20);
+    assert_eq!(
+        first_frame.as_rgba_bytes().len(),
+        (FRAME_WIDTH_PIXELS * FRAME_HEIGHT_PIXELS * 4) as usize
+    );
+    assert_ne!(first_frame, lively_frame);
+    for frame in [&first_frame, &lively_frame] {
+        let bounds = measure_opaque_bounds(frame);
+        assert!(bounds.left_x > 0 && bounds.top_y > 0);
+        assert!(bounds.right_x < FRAME_WIDTH_PIXELS - 1);
+        assert!(bounds.bottom_y < FRAME_HEIGHT_PIXELS - 1);
+    }
+    assert_eq!(
+        first_frame,
+        render_living_swim_frame(&koi_development, KoiBody::default(), behavior, 0)
+    );
 }
 
 fn read_fixture_development() -> KoiDevelopment {

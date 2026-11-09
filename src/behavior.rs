@@ -1,8 +1,8 @@
-//! The day's movement, chosen from recent activity by one ordered set of rules.
+//! The day's starting movement, chosen from recent activity by one ordered set of rules.
 
 use crate::koi::{KoiDevelopment, RecentActivity};
 
-/// One movement per run.
+/// The contribution-selected starting movement for the day's animation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Behavior {
     /// Sits low in the water, blue-tinted, barely moving.

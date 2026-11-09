@@ -1,5 +1,5 @@
 # Copy into your profile repository as .github/workflows/koi.yml, then embed
-# <img src="koi/koi.gif" width="256" alt="My koi"> in its README.md.
+# <img src="koi/koi.gif" width="432" alt="Amir's Living Koi"> in its README.md.
 name: Koi
 
 on:
@@ -20,7 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: yalongwastaken/git-koi@v1
+      - uses: amiraftorrr-spec/git-koi@v1
         with:
           body: white
           output-dir: koi

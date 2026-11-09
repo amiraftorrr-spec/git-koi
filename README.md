@@ -1,13 +1,13 @@
-# Git koi
+# Amir's Living Koi
 
-Git koi draws a pixel-art koi from a GitHub account's public activity. Its
-languages color it, its contributions grow it, its streaks mark it, and the day
-that just ended decides how it swims. A nightly workflow puts the koi on a
-profile README as a looping GIF, the same tool runs from the command line, and
-the Rust library underneath is published on crates.io.
+Amir's Living Koi turns public GitHub activity into an elegant, language-colored
+koi with organic movement, playful turns, occasional jumps, feeding moments, and
+subtle bubbles. The fish's language coat, growth, and streak markings still come
+from the existing Git Koi pipeline. A nightly workflow can place the looping GIF
+on a GitHub profile README.
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/yalongwastaken/yalongwastaken/main/koi/koi.gif" width="256" alt="The author's koi, redrawn every night from the day's activity" />
+  <img src="docs/bodies-light.png" width="432" alt="Amir's Living Koi color and body designs" />
 </p>
 
 <picture>
@@ -29,12 +29,25 @@ the Rust library underneath is published on crates.io.
 
 ## Usage
 
+### Show it on your profile
+
+Copy [examples/profile-workflow.yml](examples/profile-workflow.yml) into your
+profile repository as `.github/workflows/koi.yml`, publish a compatible release
+from this fork, and add this to its `README.md`:
+
+```html
+<img src="koi/koi.gif" width="432" alt="Amir's Living Koi" />
+```
+
+The Action writes `koi/koi.gif` as a 512 × 512 infinitely looping GIF; the
+snippet displays it at 432 pixels wide.
+
 ### Requirements
 
 - For a koi on your profile README: a GitHub account. The Action runs in your
   profile repository's workflow with its built-in token.
 - For the command line: a binary from the
-  [releases page](https://github.com/yalongwastaken/git-koi/releases), or Rust
+  [releases page](https://github.com/amiraftorrr-spec/git-koi/releases), or Rust
   at or above the `rust-version` in [Cargo.toml](Cargo.toml), plus the
   [GitHub CLI](https://cli.github.com), authenticated.
 - For the library: Rust at or above that same version.
@@ -45,10 +58,11 @@ documented on [docs.rs](https://docs.rs/git-koi).
 
 ## Author
 
-**Anthony Yalong**
+**Amir**
 
-- Email: yalong.anthony123@gmail.com
-- GitHub: [@yalongwastaken](https://github.com/yalongwastaken)
+- GitHub: [@amiraftorrr-spec](https://github.com/amiraftorrr-spec)
+
+This fork builds on [Git Koi by Anthony Yalong](https://github.com/yalongwastaken/git-koi).
 
 ## License
 

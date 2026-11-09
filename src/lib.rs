@@ -8,7 +8,8 @@
 //! 3. [`koi`] turns a snapshot into a [`koi::KoiDevelopment`]: identity, language colors,
 //!    growth, streaks, and recent activity.
 //! 4. [`behavior`] chooses the day's [`behavior::Behavior`] from that activity, and
-//!    [`motion`] gives the pose for each frame of the behavior's loop.
+//!    [`motion`] gives the pose for each frame, including a deterministic sequence of
+//!    lively events seeded by account identity.
 //! 5. [`markings`] measures how strongly the streaks show, and [`coat`] names the bodies
 //!    the koi can wear and colors it from its languages.
 //! 6. [`render`] draws a [`render::KoiFrame`], still or swimming, and [`output`] encodes

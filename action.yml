@@ -1,7 +1,7 @@
 name: git-profile-koi
 description:
-  Draw a GitHub account's koi from its public activity as a looping GIF, a still
-  PNG, and a preview, for a profile README.
+  Draw Amir's lively, language-colored koi from public GitHub activity as a
+  looping GIF, a still PNG, and a preview.
 branding:
   icon: droplet
   color: blue

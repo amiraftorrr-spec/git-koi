@@ -14,11 +14,11 @@ night:
 2. Embed the koi in its `README.md`:
 
    ```html
-   <img src="koi/koi.gif" width="256" alt="My koi" />
+   <img src="koi/koi.gif" width="432" alt="Amir's Living Koi" />
    ```
 
-   The GIF is drawn at exactly twice the koi's pixel size, so `width="256"`
-   shows it at native size without blurring.
+   The GIF is 512 × 512 pixels and is displayed at 432 pixels wide. Its output
+   stays in the existing `koi/koi.gif` path.
 
 3. Run the workflow once from the repository's Actions tab, so the first koi
    appears without waiting for midnight.
@@ -40,7 +40,8 @@ when it changed, so an unchanged koi adds no commit.
 To change the body, edit `body` in your copy of the workflow; pushing the change
 runs the workflow and redraws the koi. If you change `output-dir`, change the
 commit step's path and the README image to match. The example uses
-`yalongwastaken/git-koi@v1`, which moves to each compatible release; pin a full
+`amiraftorrr-spec/git-koi@v1`, which moves to each compatible release; publish a
+compatible release from your fork before enabling the workflow, or pin a full
 release tag to choose when you update.
 
 GitHub pauses scheduled workflows in a public repository after 60 days without
@@ -54,11 +55,11 @@ Install one of two ways. With Rust at or above the `rust-version` in
 [Cargo.toml](../Cargo.toml):
 
 ```sh
-cargo install git-koi --locked
+cargo install --git https://github.com/amiraftorrr-spec/git-koi --tag v1.0.3 --locked
 ```
 
 Or download the archive for your platform from the
-[releases page](https://github.com/yalongwastaken/git-koi/releases), a `.tar.gz`
+[releases page](https://github.com/amiraftorrr-spec/git-koi/releases), a `.tar.gz`
 for Linux and macOS or a `.zip` for Windows. Each archive has a `.sha256` file
 beside it; check the download with `shasum -a 256 -c` on macOS, `sha256sum -c`
 on Linux, or `certutil -hashfile` on Windows, then put `git-koi` on your `PATH`.
@@ -104,9 +105,8 @@ use git_koi::behavior::select_behavior;
 use git_koi::coat::KoiBody;
 use git_koi::history::AccountSnapshot;
 use git_koi::koi::derive_koi_development;
-use git_koi::motion::frame_count;
 use git_koi::output::{encode_gif, encode_png};
-use git_koi::render::{render_koi, render_swim_frame};
+use git_koi::render::{render_koi, render_living_swim_frames};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let snapshot_json = std::fs::read_to_string("snapshot.json")?;
@@ -114,9 +114,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let koi_development = derive_koi_development(&account_snapshot)?;
     let koi_body = KoiBody::Asagi;
     let behavior = select_behavior(&koi_development);
-    let swim_frames: Vec<_> = (0..frame_count(behavior))
-        .map(|frame_index| render_swim_frame(&koi_development, koi_body, behavior, frame_index))
-        .collect();
+    let swim_frames = render_living_swim_frames(&koi_development, koi_body, behavior);
     std::fs::write("koi.gif", encode_gif(&swim_frames)?)?;
     std::fs::write("koi.png", encode_png(&render_koi(&koi_development, koi_body))?)?;
     Ok(())

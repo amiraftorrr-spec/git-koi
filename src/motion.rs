@@ -189,6 +189,250 @@ pub(crate) const STILL_POSE: SwimPose = SwimPose {
     mouth_opening: 0.0,
 };
 
+/// A lively swim pose and its lightweight water effects.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct LivingSwimPose {
+    /// The compatible body, fin, and course pose.
+    pub pose: SwimPose,
+    /// How strongly the feeding ripples and pellets appear.
+    pub feeding_strength: f64,
+    /// Strength of the koi's nearby bubbles, from zero through one.
+    pub bubble_strength: f64,
+    /// Strength of a small splash, from zero through one.
+    pub splash_strength: f64,
+    /// Shared phase for water effects, wrapping once per loop.
+    pub effect_phase: f64,
+}
+
+impl std::ops::Deref for LivingSwimPose {
+    type Target = SwimPose;
+
+    fn deref(&self) -> &Self::Target {
+        &self.pose
+    }
+}
+
+/// A short-lived action woven into the koi's daily movement.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SwimEvent {
+    /// A calm, everyday glide.
+    Cruise,
+    /// A quick burst with a stronger tail beat.
+    FastSwim,
+    /// A playful sweeping turn.
+    Turn,
+    /// A lively side-to-side weave.
+    Zigzag,
+    /// A small hop and splash.
+    Jump,
+    /// A brief pause to feed at the surface.
+    Feeding,
+    /// A few bubbles to follow and investigate.
+    BubblePlay,
+    /// A gentle pause in the swim.
+    Pause,
+    /// A curious head and fin movement.
+    Curious,
+}
+
+const SWIM_EVENTS: [SwimEvent; 9] = [
+    SwimEvent::Cruise,
+    SwimEvent::FastSwim,
+    SwimEvent::Turn,
+    SwimEvent::Zigzag,
+    SwimEvent::Jump,
+    SwimEvent::Feeding,
+    SwimEvent::BubblePlay,
+    SwimEvent::Pause,
+    SwimEvent::Curious,
+];
+
+/// The deterministic five-part sequence used by the lively animation. It starts and
+/// ends with the contribution-selected behavior and chooses three varied events from
+/// the account seed, so the sequence loops cleanly and the same account always gets
+/// the same choreography.
+pub fn animation_sequence(behavior: Behavior, identity_seed: u64) -> [SwimEvent; 5] {
+    let opening_event = match behavior {
+        Behavior::Cruise => SwimEvent::Cruise,
+        Behavior::Dart => SwimEvent::FastSwim,
+        Behavior::Rest | Behavior::DeepRest => SwimEvent::Pause,
+        Behavior::SurfaceFeeding => SwimEvent::Feeding,
+    };
+    let mut sequence = [opening_event; 5];
+    let mut state = identity_seed ^ (behavior as u64 + 1).wrapping_mul(0x9e37_79b9_7f4a_7c15);
+    for event_index in 1..4 {
+        state = mix_seed(state);
+        let mut candidate_index = (state % SWIM_EVENTS.len() as u64) as usize;
+        while SWIM_EVENTS[candidate_index] == sequence[event_index - 1]
+            || SWIM_EVENTS[candidate_index] == opening_event
+        {
+            candidate_index = (candidate_index + 1) % SWIM_EVENTS.len();
+        }
+        sequence[event_index] = SWIM_EVENTS[candidate_index];
+    }
+    sequence[4] = opening_event;
+    sequence
+}
+
+/// The pose for the account-specific animation's frame. It blends a reproducible
+/// sequence of varied events across the loop, preserving the existing contribution-
+/// selected movement while adding smooth bursts, turns, weaving, jumps, feeding,
+/// bubbles, pauses, and curious fin movements.
+pub fn calculate_living_swim_pose(
+    behavior: Behavior,
+    identity_seed: u64,
+    frame_index: u32,
+) -> LivingSwimPose {
+    let loop_frame_count = frame_count(behavior);
+    let loop_frame = frame_index % loop_frame_count;
+    let phase = f64::from(loop_frame) / f64::from(loop_frame_count);
+    let sequence = animation_sequence(behavior, identity_seed);
+    let sequence_position = phase * 4.0;
+    let segment_index = (sequence_position.floor() as usize).min(3);
+    let blend = smooth_step(sequence_position.fract());
+    let mut profile = event_profile(sequence[segment_index]);
+    profile.blend_toward(event_profile(sequence[segment_index + 1]), blend);
+
+    let seed_phase = (mix_seed(identity_seed) % 10_000) as f64 / 10_000.0 * TAU;
+    let event_phase = (phase * 3.0 + seed_phase / TAU).fract();
+    let jump_pulse = (TAU * 3.0 * phase + seed_phase).sin().max(0.0).powi(4);
+    let mut pose = calculate_swim_pose(behavior, loop_frame);
+    match &mut pose.course {
+        Course::Lap { angle_radians } => {
+            *angle_radians += profile.fast_swim * 0.35 * (TAU * phase + seed_phase).sin()
+                + profile.turn * 0.25 * (2.0 * TAU * phase + seed_phase).sin()
+                + profile.zigzag * 0.15 * (5.0 * TAU * phase + seed_phase).sin()
+                - profile.pause * 0.12 * (3.0 * TAU * phase + seed_phase).sin();
+        }
+        Course::Hover {
+            heading_offset_radians,
+            drift_pixels,
+        } => {
+            *heading_offset_radians += profile.turn * 0.12 * (TAU * phase + seed_phase).sin()
+                + profile.curiosity * 0.08 * (3.0 * TAU * phase + seed_phase).sin();
+            drift_pixels[0] += profile.zigzag * 2.0 * (5.0 * TAU * phase + seed_phase).sin();
+            drift_pixels[1] +=
+                profile.jump * -5.0 * jump_pulse + profile.zigzag * (4.0 * TAU * phase).sin();
+        }
+    }
+    let tail_energy = 1.0 + 0.12 * profile.fast_swim + 0.08 * profile.zigzag - 0.1 * profile.pause;
+    pose.wave_strength = (pose.wave_strength * tail_energy).max(0.04);
+    for bend in &mut pose.tail_lobe_bends_radians {
+        *bend *= tail_energy;
+    }
+    pose.tail_spread_radians += 0.04 * profile.fast_swim + 0.03 * profile.turn;
+    let fin_flick = 0.08 * profile.curiosity * (4.0 * TAU * phase + seed_phase).sin();
+    pose.side_fin_openings_radians[0] -= fin_flick;
+    pose.side_fin_openings_radians[1] += fin_flick;
+    pose.side_fin_bends_radians[0] -= fin_flick * 0.7;
+    pose.side_fin_bends_radians[1] += fin_flick * 0.7;
+    pose.pelvic_fin_opening_radians += 0.04 * profile.curiosity * (TAU * phase).sin();
+    pose.whisker_sway_radians += 0.04 * profile.curiosity * (2.0 * TAU * phase).sin();
+    pose.mouth_opening = pose
+        .mouth_opening
+        .max(profile.feeding * (TAU * 3.0 * phase + seed_phase).sin().max(0.0));
+    let feeding_strength = if pose.feeding_phase.is_some() {
+        1.0
+    } else {
+        profile.feeding
+    };
+    pose.feeding_phase = (feeding_strength > 0.02).then_some(event_phase);
+    LivingSwimPose {
+        pose,
+        feeding_strength,
+        bubble_strength: profile.bubbles,
+        splash_strength: profile.jump * jump_pulse,
+        effect_phase: event_phase,
+    }
+}
+
+#[derive(Clone, Copy, Default)]
+struct EventProfile {
+    fast_swim: f64,
+    turn: f64,
+    zigzag: f64,
+    jump: f64,
+    feeding: f64,
+    bubbles: f64,
+    pause: f64,
+    curiosity: f64,
+}
+
+impl EventProfile {
+    fn blend_toward(&mut self, other: Self, fraction: f64) {
+        self.fast_swim = interpolate(self.fast_swim, other.fast_swim, fraction);
+        self.turn = interpolate(self.turn, other.turn, fraction);
+        self.zigzag = interpolate(self.zigzag, other.zigzag, fraction);
+        self.jump = interpolate(self.jump, other.jump, fraction);
+        self.feeding = interpolate(self.feeding, other.feeding, fraction);
+        self.bubbles = interpolate(self.bubbles, other.bubbles, fraction);
+        self.pause = interpolate(self.pause, other.pause, fraction);
+        self.curiosity = interpolate(self.curiosity, other.curiosity, fraction);
+    }
+}
+
+fn event_profile(event: SwimEvent) -> EventProfile {
+    match event {
+        SwimEvent::Cruise => EventProfile::default(),
+        SwimEvent::FastSwim => EventProfile {
+            fast_swim: 0.9,
+            ..EventProfile::default()
+        },
+        SwimEvent::Turn => EventProfile {
+            turn: 1.0,
+            curiosity: 0.3,
+            ..EventProfile::default()
+        },
+        SwimEvent::Zigzag => EventProfile {
+            zigzag: 1.0,
+            fast_swim: 0.25,
+            ..EventProfile::default()
+        },
+        SwimEvent::Jump => EventProfile {
+            jump: 1.0,
+            bubbles: 0.55,
+            ..EventProfile::default()
+        },
+        SwimEvent::Feeding => EventProfile {
+            feeding: 1.0,
+            bubbles: 0.25,
+            pause: 0.35,
+            ..EventProfile::default()
+        },
+        SwimEvent::BubblePlay => EventProfile {
+            bubbles: 1.0,
+            curiosity: 0.75,
+            ..EventProfile::default()
+        },
+        SwimEvent::Pause => EventProfile {
+            pause: 0.8,
+            ..EventProfile::default()
+        },
+        SwimEvent::Curious => EventProfile {
+            turn: 0.35,
+            curiosity: 1.0,
+            bubbles: 0.45,
+            ..EventProfile::default()
+        },
+    }
+}
+
+fn mix_seed(mut value: u64) -> u64 {
+    value = value.wrapping_add(0x9e37_79b9_7f4a_7c15);
+    value = (value ^ (value >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+    value = (value ^ (value >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+    value ^ (value >> 31)
+}
+
+fn smooth_step(fraction: f64) -> f64 {
+    let fraction = fraction.clamp(0.0, 1.0);
+    fraction * fraction * (3.0 - 2.0 * fraction)
+}
+
+fn interpolate(from: f64, to: f64, fraction: f64) -> f64 {
+    from + (to - from) * fraction
+}
+
 /// Frames in a behavior's loop at FRAMES_PER_SECOND.
 pub fn frame_count(behavior: Behavior) -> u32 {
     match behavior {
